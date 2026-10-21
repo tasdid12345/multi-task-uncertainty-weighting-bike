@@ -1,4 +1,4 @@
-ucimlrepo
+requests
 pandas
 numpy
 scikit-learn

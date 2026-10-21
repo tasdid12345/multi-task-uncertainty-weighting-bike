@@ -1,25 +1,25 @@
-# Multi-task uncertainty weighting vs. per-task LightGBM on UCI Bike Sharing
+# Multi-task uncertainty weighting on UCI Bike Sharing
 
-Question: can a per-task, cross-validated LightGBM model beat an uncertainty-weighted shared MLP on the two rider-count tasks (casual, registered) of the UCI Bike Sharing (hourly) data?
+Compares a shared 64-64 MLP baseline with Kendall-style uncertainty weights against a per-task LightGBM model whose hyperparameters are chosen by 3-fold time-series cross-validation on the training set. Both models predict the `casual` and `registered` rider counts on the UCI Bike Sharing hourly data.
 
-Setup
-- Data: UCI Bike Sharing (dataset id 275), fetched with `ucimlrepo`.
-- Chronological 80/20 split: first 80% train, last 20% test. The test set is used only for final scoring.
-- Baseline: shared 64-64 MLP on standardized targets, Kendall-style weights (1 / validation residual variance) refreshed over 3 rounds.
-- Improved: one LightGBM regressor per task, hyperparameters chosen by 3-fold time-series CV on the training set only.
-- Metric: mean over tasks of test RMSE / test std (lower is better). Secondary: test MAE per task.
-- Seeds 42, 43, 44.
+## Setup
 
-Run
 ```
 pip install -r requirements.txt
 python analysis.py
 ```
-Outputs: `results.json` and `figures/main_score.png`.
 
-Notes
-- The target columns are located in either the features or the targets frame returned by `ucimlrepo`.
-- `cnt` (casual + registered) is excluded from the features to avoid target leakage.
+The script downloads the hourly data from the UCI archive (`hour.csv`), makes a chronological 80/20 train/test split, and writes `results.json` and `figures/main_score.png`.
+
+## Metric
+
+Mean over tasks of test RMSE divided by test standard deviation (NRMSE). Lower is better. Per-task MAE is also reported in `results.json`.
+
+## Notes
+
+- Features exclude `dteday`, `instant` and `cnt`, since `cnt` is the sum of the two targets.
+- Seeds 42, 43 and 44 are used. The test set is used only for final scoring.
+- The data is read directly from the UCI archive zip because the `ucimlrepo` fetch did not expose the `casual` and `registered` columns.
 
 ## Reference
 

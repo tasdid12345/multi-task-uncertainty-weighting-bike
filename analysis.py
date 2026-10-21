@@ -5,35 +5,40 @@ Baseline : shared 64-64 MLP on standardized targets, Kendall-style uncertainty w
 Improved : one LightGBM regressor per task, hyperparameters chosen by 3-fold time-series CV on the training set.
 Metric   : mean over tasks of test RMSE / test std (lower is better). Secondary: test MAE per task.
 """
-import json, sys, time
+import io, json, sys, time, zipfile, socket
 import numpy as np, pandas as pd
 import matplotlib
 matplotlib.use("Agg")  # headless plotting
 import matplotlib.pyplot as plt
 import lightgbm as lgb
-import socket
+import requests
 from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import TimeSeriesSplit, ParameterGrid
 from sklearn.metrics import mean_absolute_error
-from ucimlrepo import fetch_ucirepo
 
 SEED, SEEDS = 42, [42, 43, 44]
 TASKS = ["casual", "registered"]
 # Columns that are not legitimate inputs: ids/raw dates, the total count (leaks the two task targets).
 DROP_COLS = ["dteday", "instant", "cnt"]
 SOURCE_URL = "https://archive.ics.uci.edu/dataset/275/bike+sharing+dataset"
+# Direct download of the official UCI archive. The ucimlrepo metadata for id=275 does not expose
+# 'casual' and 'registered' as columns in this environment, so the hourly CSV is read directly.
+ZIP_URL = "https://archive.ics.uci.edu/static/public/275/bike+sharing+dataset.zip"
 PARAM_GRID = {"n_estimators": [300, 600], "learning_rate": [0.03, 0.1],
               "num_leaves": [15, 31, 63], "min_child_samples": [20, 50]}
-socket.setdefaulttimeout(60)  # 60 s timeout for network downloads (used by ucimlrepo's HTTP calls)
+socket.setdefaulttimeout(60)  # 60 s timeout for network downloads
 
 
 def fetch_data(max_tries=5):
-    """Fetch the dataset via ucimlrepo; retry with exponential backoff on 429/5xx or connection errors."""
+    """Download the UCI zip and read hour.csv; retry with exponential backoff on 429/5xx or connection errors."""
     for i in range(max_tries):
         try:
-            ds = fetch_ucirepo(id=275)
-            return ds.data.features.copy(), ds.data.targets.copy()
+            r = requests.get(ZIP_URL, timeout=60)
+            r.raise_for_status()
+            with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+                with z.open("hour.csv") as f:
+                    return pd.read_csv(f)
         except Exception as e:
             code = getattr(getattr(e, "response", None), "status_code", None)
             fatal = code is not None and (code < 500 and code != 429)
@@ -44,18 +49,12 @@ def fetch_data(max_tries=5):
 
 
 def load_data():
-    """Return chronologically ordered frame (features + casual/registered) and feature names.
-
-    The UCI metadata does not guarantee which of the two frames (features or targets) carries
-    'casual' and 'registered', so search both and combine them.
-    """
-    X, y = fetch_data()
-    combined = pd.concat([X, y], axis=1)
+    """Return chronologically ordered frame (features + casual/registered) and feature names."""
+    combined = fetch_data()
     combined = combined.loc[:, ~combined.columns.duplicated()]  # keep first occurrence of any repeated name
     missing = [t for t in TASKS if t not in combined.columns]
     if missing:
-        raise KeyError(f"Task columns {missing} not found in features or targets. "
-                       f"Available: {list(combined.columns)}")
+        raise KeyError(f"Task columns {missing} not found. Available: {list(combined.columns)}")
     feats = [c for c in combined.columns if c not in TASKS and c not in DROP_COLS]
     df = combined[feats + TASKS].dropna().reset_index(drop=True)
     return df, feats
@@ -132,7 +131,9 @@ def main():
     print("Tuning LightGBM by 3-fold time-series CV (training data only)...")
     params = {t: tune_lgb(train, feats, t) for t in TASKS}
 
-    b_scores, i_scores, b_mae, i_mae, b_nr, i_nr = [], [], {t: [] for t in TASKS}, {t: [] for t in TASKS}, {t: [] for t in TASKS}, {t: [] for t in TASKS}
+    b_scores, i_scores = [], []
+    b_mae, i_mae = {t: [] for t in TASKS}, {t: [] for t in TASKS}
+    b_nr, i_nr = {t: [] for t in TASKS}, {t: [] for t in TASKS}
     for seed in SEEDS:
         print(f"Seed {seed}: baseline MLP...")
         s, mae, nr = evaluate(run_baseline(train, test, feats, seed), test)
@@ -177,6 +178,7 @@ def main():
         "notes": "Single chronological split; test set used only for final scoring. LightGBM is effectively "
                  "deterministic, so seed variation is small. Baseline MLP uses early stopping on an internal split. "
                  "Features exclude dteday, instant and cnt (cnt is the sum of the two targets, so it would leak). "
+                 "Data is read from the UCI archive hour.csv because the ucimlrepo fetch did not expose casual/registered. "
                  "yr carries the long-term trend and trees cannot extrapolate "
                  "beyond the training range. The paper's own model and results are not reproduced here.",
     }
