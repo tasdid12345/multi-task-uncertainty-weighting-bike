@@ -1,0 +1,33 @@
+{
+  "question": "Can a per-task, cross-validated LightGBM model beat an uncertainty-weighted shared MLP on two rider-count tasks of different scale in the UCI Bike Sharing data?",
+  "method": "Chronological 80/20 split; baseline shared MLP with Kendall-style weights; improved per-task LightGBM tuned by 3-fold time-series CV on training data; seeds 42-44; test set used once.",
+  "dataset": {
+    "name": "UCI Bike Sharing (hourly)",
+    "source_url": "https://archive.ics.uci.edu/dataset/275/bike+sharing+dataset",
+    "n_rows": 17379,
+    "n_train": 13903,
+    "n_test": 3476,
+    "same_as_paper": false,
+    "baseline_is_papers_method": false
+  },
+  "metric_name": "mean over tasks of test RMSE / test std (NRMSE)",
+  "higher_is_better": false,
+  "baseline": "Shared-trunk MLPRegressor (64-64) on standardized targets with Kendall-style uncertainty weights (1/validation residual variance) refreshed over 3 rounds, applied by scaling outputs by sqrt(w).",
+  "improved": "One LightGBM regressor per task (casual, registered) with hyperparameters chosen by 3-fold time-series CV on the training set.",
+  "metrics": {
+    "baseline_score": 0.4146091862736272,
+    "improved_score": 0.3176425534761474,
+    "improvement": 0.0969666327974798,
+    "baseline_score_std": 0.009438584290037607,
+    "improved_score_std": 0.0,
+    "baseline_mae_casual": 14.7387679819127,
+    "improved_mae_casual": 10.938445923117408,
+    "baseline_nrmse_casual": 0.45149702816078824,
+    "improved_nrmse_casual": 0.3316781536707399,
+    "baseline_mae_registered": 48.90201854075616,
+    "improved_mae_registered": 37.127560161344284,
+    "baseline_nrmse_registered": 0.3777213443864662,
+    "improved_nrmse_registered": 0.3036069532815549
+  },
+  "notes": "Single chronological split; test set used only for final scoring. LightGBM is effectively deterministic, so seed variation is small. Baseline MLP uses early stopping on an internal split. Features exclude dteday, instant and cnt (cnt is the sum of the two targets, so it would leak). Data is read from the UCI archive hour.csv because the ucimlrepo fetch did not expose casual/registered. yr carries the long-term trend and trees cannot extrapolate beyond the training range. The paper's own model and results are not reproduced here."
+}
