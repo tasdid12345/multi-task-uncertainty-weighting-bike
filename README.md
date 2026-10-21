@@ -1,23 +1,25 @@
-# Per-task LightGBM vs uncertainty-weighted shared MLP on bike-sharing counts
+# Multi-task uncertainty weighting vs. per-task LightGBM on UCI Bike Sharing
 
-Motivation: Multi-task networks often combine task losses with hand-set or learned weights, and "Investigating Uncertainty Weighting for Multi-Task Learning: Insights and Analytical Alternative" studies how uncertainty-based loss weighting behaves and proposes an analytical alternative. This experiment asks a simpler, practical question: when the tasks differ greatly in scale, does a shared neural network with uncertainty-style weights lose to separate, cross-validated gradient-boosted models?
+Question: can a per-task, cross-validated LightGBM model beat an uncertainty-weighted shared MLP on the two rider-count tasks (casual, registered) of the UCI Bike Sharing (hourly) data?
 
-Question: Can a per-task, cross-validated LightGBM model beat an uncertainty-weighted shared MLP on two rider-count tasks of different scale in the UCI Bike Sharing data?
+Setup
+- Data: UCI Bike Sharing (dataset id 275), fetched with `ucimlrepo`.
+- Chronological 80/20 split: first 80% train, last 20% test. The test set is used only for final scoring.
+- Baseline: shared 64-64 MLP on standardized targets, Kendall-style weights (1 / validation residual variance) refreshed over 3 rounds.
+- Improved: one LightGBM regressor per task, hyperparameters chosen by 3-fold time-series CV on the training set only.
+- Metric: mean over tasks of test RMSE / test std (lower is better). Secondary: test MAE per task.
+- Seeds 42, 43, 44.
 
-Dataset: UCI Bike Sharing (hourly), fetched with the `ucimlrepo` package. Tasks are casual and registered rider counts. The split is chronological: first 80% train, last 20% test. This is not the paper's own dataset.
-
-Baseline: a shared-trunk scikit-learn MLPRegressor (64-64) on standardized targets, with Kendall-style uncertainty weights approximated by inverse validation residual variance, refreshed over 3 rounds.
-
-Improved: one LightGBM regressor per task, with hyperparameters chosen by 3-fold time-series cross-validation on the training data only.
-
-How to run:
-
+Run
 ```
 pip install -r requirements.txt
 python analysis.py
 ```
+Outputs: `results.json` and `figures/main_score.png`.
 
-Results: results are written to `results.json` (and a chart to `figures/main_score.png`).
+Notes
+- The target columns are located in either the features or the targets frame returned by `ucimlrepo`.
+- `cnt` (casual + registered) is excluded from the features to avoid target leakage.
 
 ## Reference
 

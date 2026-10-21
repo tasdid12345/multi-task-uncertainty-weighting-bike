@@ -20,6 +20,8 @@ from ucimlrepo import fetch_ucirepo
 
 SEED, SEEDS = 42, [42, 43, 44]
 TASKS = ["casual", "registered"]
+# Columns that are not legitimate inputs: ids/raw dates, the total count (leaks the two task targets).
+DROP_COLS = ["dteday", "instant", "cnt"]
 SOURCE_URL = "https://archive.ics.uci.edu/dataset/275/bike+sharing+dataset"
 PARAM_GRID = {"n_estimators": [300, 600], "learning_rate": [0.03, 0.1],
               "num_leaves": [15, 31, 63], "min_child_samples": [20, 50]}
@@ -42,11 +44,21 @@ def fetch_data(max_tries=5):
 
 
 def load_data():
-    """Return chronologically ordered frame (features + casual/registered) and feature names."""
+    """Return chronologically ordered frame (features + casual/registered) and feature names.
+
+    The UCI metadata does not guarantee which of the two frames (features or targets) carries
+    'casual' and 'registered', so search both and combine them.
+    """
     X, y = fetch_data()
-    X = X.drop(columns=[c for c in ["dteday", "instant"] if c in X.columns])  # ids / raw date strings
-    df = pd.concat([X, y[TASKS]], axis=1).dropna().reset_index(drop=True)
-    return df, [c for c in df.columns if c not in TASKS]
+    combined = pd.concat([X, y], axis=1)
+    combined = combined.loc[:, ~combined.columns.duplicated()]  # keep first occurrence of any repeated name
+    missing = [t for t in TASKS if t not in combined.columns]
+    if missing:
+        raise KeyError(f"Task columns {missing} not found in features or targets. "
+                       f"Available: {list(combined.columns)}")
+    feats = [c for c in combined.columns if c not in TASKS and c not in DROP_COLS]
+    df = combined[feats + TASKS].dropna().reset_index(drop=True)
+    return df, feats
 
 
 def rmse(y, p):
@@ -164,7 +176,8 @@ def main():
         "metrics": metrics,
         "notes": "Single chronological split; test set used only for final scoring. LightGBM is effectively "
                  "deterministic, so seed variation is small. Baseline MLP uses early stopping on an internal split. "
-                 "Features exclude dteday and instant; yr carries the long-term trend and trees cannot extrapolate "
+                 "Features exclude dteday, instant and cnt (cnt is the sum of the two targets, so it would leak). "
+                 "yr carries the long-term trend and trees cannot extrapolate "
                  "beyond the training range. The paper's own model and results are not reproduced here.",
     }
     with open("results.json", "w", encoding="utf-8") as f:
